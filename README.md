@@ -115,3 +115,18 @@ esp_dmx:     4.1.0
 DMX TX:      GPIO21
 ArtNet Port: 6454
 ```
+
+---
+
+## 📄 Lizenz
+
+Dieses Projekt ist für private und experimentelle Nutzung gedacht.  
+Keine Haftung für Schäden oder Fehlfunktionen.
+
+---
+
+## 🙌 Credits
+
+- esp_dmx Library
+- ArtnetWifi Library
+- Espressif ESP32 Framework
