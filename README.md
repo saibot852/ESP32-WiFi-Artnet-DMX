@@ -26,6 +26,8 @@ Das Projekt empfängt **ArtNet (UDP)** über WLAN/LAN und gibt **DMX512** über 
 
 ---
 
+<img width="910" height="765" alt="Webinterface" src="https://github.com/user-attachments/assets/f9b85ca2-4b33-4f2d-b0f2-6c7e06ba3bde" />
+
 ## 🧩 Hardware
 
 ### Getestet mit
