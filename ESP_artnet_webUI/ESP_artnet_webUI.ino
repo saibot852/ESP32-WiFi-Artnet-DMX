@@ -55,7 +55,7 @@ static const dmx_port_t DMX_PORT = DMX_NUM_1;
 static const int DMX_TX_PIN = 21;
 static uint8_t dmxBuffer[DMX_PACKET_SIZE];
 static uint32_t lastDmxSendMs = 0;
-static const uint32_t DMX_REFRESH_MS = 25; // ~40 Hz
+static const uint32_t DMX_REFRESH_MS = 25;  // ~40 Hz
 
 /* ================= ArtNet ================= */
 ArtnetWifi artnet;
@@ -71,11 +71,11 @@ static uint32_t g_lastStatsMs = 0;
 static uint32_t g_lastFramesSnapshot = 0;
 
 /* ================= Hardware ================= */
-static const int BOOT_PIN = 0; // BOOT Button
+static const int BOOT_PIN = 0;  // BOOT Button
 // BOOT long-press reset
 static uint32_t bootPressStartMs = 0;
 static bool bootResetTriggered = false;
-static const uint32_t BOOT_RESET_TIME_MS = 5000; // 5 Sekunden
+static const uint32_t BOOT_RESET_TIME_MS = 5000;  // 5 Sekunden
 
 
 /* ================= AP / DNS ================= */
@@ -83,6 +83,8 @@ static const char* AP_SSID = "ESP-Artnet";
 static const byte DNS_PORT = 53;
 DNSServer dnsServer;
 WebServer server(80);
+static bool wifiScanRunning = false;
+static uint32_t wifiScanStartMs = 0;
 
 /* ================= EEPROM ================= */
 static const uint16_t EEPROM_SIZE = 1024;
@@ -91,11 +93,11 @@ static const uint32_t CFG_MAGIC = 0xA17E7E55;
 struct Config {
   uint32_t magic;
 
-  bool forceConfig;        // persistent config-mode
+  bool forceConfig;  // persistent config-mode
   char sta_ssid[33];
   char sta_pass[65];
 
-  char ap_pass[65];        // WPA2 requires 8..63 chars
+  char ap_pass[65];  // WPA2 requires 8..63 chars
 
   bool useStatic;
   uint8_t ip[4], gw[4], sn[4];
@@ -111,56 +113,68 @@ static String ipToString(const uint8_t a[4]) {
 }
 
 static bool parseIPv4(const String& s, uint8_t out[4]) {
-  int p1=s.indexOf('.'), p2=s.indexOf('.',p1+1), p3=s.indexOf('.',p2+1);
-  if(p1<0||p2<0||p3<0) return false;
-  int a=s.substring(0,p1).toInt(), b=s.substring(p1+1,p2).toInt(),
-      c=s.substring(p2+1,p3).toInt(), d=s.substring(p3+1).toInt();
-  if(a<0||a>255||b<0||b>255||c<0||c>255||d<0||d>255) return false;
-  out[0]=a; out[1]=b; out[2]=c; out[3]=d;
+  int p1 = s.indexOf('.'), p2 = s.indexOf('.', p1 + 1), p3 = s.indexOf('.', p2 + 1);
+  if (p1 < 0 || p2 < 0 || p3 < 0) return false;
+  int a = s.substring(0, p1).toInt(), b = s.substring(p1 + 1, p2).toInt(),
+      c = s.substring(p2 + 1, p3).toInt(), d = s.substring(p3 + 1).toInt();
+  if (a < 0 || a > 255 || b < 0 || b > 255 || c < 0 || c > 255 || d < 0 || d > 255) return false;
+  out[0] = a;
+  out[1] = b;
+  out[2] = c;
+  out[3] = d;
   return true;
 }
 
 static bool bootHeld() {
   pinMode(BOOT_PIN, INPUT_PULLUP);
-  uint32_t t=millis();
-  while(millis()-t<1200){
-    if(digitalRead(BOOT_PIN)==HIGH) return false;
+  uint32_t t = millis();
+  while (millis() - t < 1200) {
+    if (digitalRead(BOOT_PIN) == HIGH) return false;
     delay(10);
   }
   return true;
 }
 
 /* ================= Config ================= */
-static void setDefaults(){
-  memset(&cfg,0,sizeof(cfg));
-  cfg.magic=CFG_MAGIC;
+static void setDefaults() {
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.magic = CFG_MAGIC;
 
   cfg.forceConfig = false;
 
   // Default AP password
-  strcpy(cfg.ap_pass,"ArtnetDMX512");
+  strcpy(cfg.ap_pass, "ArtnetDMX512");
 
   // Default network (only relevant if you choose static)
-  cfg.useStatic=false;
+  cfg.useStatic = false;
 
   // Default static IP requested: 192.168.4.1
-  cfg.ip[0]=192; cfg.ip[1]=168; cfg.ip[2]=4; cfg.ip[3]=1;
+  cfg.ip[0] = 192;
+  cfg.ip[1] = 168;
+  cfg.ip[2] = 4;
+  cfg.ip[3] = 1;
 
   // Default gateway/subnet
-  cfg.gw[0]=192; cfg.gw[1]=168; cfg.gw[2]=0; cfg.gw[3]=1;
-  cfg.sn[0]=255; cfg.sn[1]=255; cfg.sn[2]=255; cfg.sn[3]=0;
+  cfg.gw[0] = 192;
+  cfg.gw[1] = 168;
+  cfg.gw[2] = 0;
+  cfg.gw[3] = 1;
+  cfg.sn[0] = 255;
+  cfg.sn[1] = 255;
+  cfg.sn[2] = 255;
+  cfg.sn[3] = 0;
 
   // Default universe: 0
-  cfg.universe=0;
+  cfg.universe = 0;
 }
 
-static void loadConfig(){
+static void loadConfig() {
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(0,cfg);
-  if(cfg.magic!=CFG_MAGIC){
+  EEPROM.get(0, cfg);
+  if (cfg.magic != CFG_MAGIC) {
     Serial.println("[CFG] No valid config found -> set defaults");
     setDefaults();
-    EEPROM.put(0,cfg);
+    EEPROM.put(0, cfg);
     EEPROM.commit();
   }
 
@@ -173,7 +187,7 @@ static void loadConfig(){
     EEPROM.commit();
   }
 
-  startUniverse=cfg.universe;
+  startUniverse = cfg.universe;
   Serial.printf("[CFG] Loaded: forceConfig=%d, useStatic=%d, universe=%u\n",
                 (int)cfg.forceConfig, (int)cfg.useStatic, (unsigned)cfg.universe);
   Serial.printf("[CFG] STA SSID='%s'\n", cfg.sta_ssid);
@@ -181,16 +195,16 @@ static void loadConfig(){
                 ipToString(cfg.ip).c_str(), ipToString(cfg.gw).c_str(), ipToString(cfg.sn).c_str());
 }
 
-static void saveConfig(){
-  cfg.magic=CFG_MAGIC;
-  EEPROM.put(0,cfg);
+static void saveConfig() {
+  cfg.magic = CFG_MAGIC;
+  EEPROM.put(0, cfg);
   EEPROM.commit();
-  startUniverse=cfg.universe;
+  startUniverse = cfg.universe;
   Serial.println("[CFG] Saved to EEPROM");
 }
 
 /* ===== Factory Reset ===== */
-static void factoryResetAndReboot(const char* reason){
+static void factoryResetAndReboot(const char* reason) {
   Serial.printf("[RESET] Factory reset requested (%s)\n", reason ? reason : "unknown");
 
   setDefaults();
@@ -254,7 +268,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   .row{display:grid;grid-template-columns:1fr;gap:10px}
   @media(min-width:640px){.row{grid-template-columns:1fr 1fr}}
   button{
-    margin-top:10px;
+    margin-top:0px;
     padding:9px 12px;
     border-radius:12px;
     border:1px solid var(--border);
@@ -283,6 +297,8 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   #overlayTitle{font-weight:800; font-size:16px;}
   #overlayMsg{margin-top:8px; color:#94a3b8; font-size:13px; line-height:1.4;}
   .btnRow{display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;}
+  
+
 </style>
 </head>
 <body>
@@ -307,6 +323,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
         <div><select id="net"></select></div>
         <div><button class="secondary" type="button" onclick="scan()">Scan</button></div>
       </div>
+      <div id="scanStatus" class="help"></div>
 
       <label>SSID</label>
       <input id="ssid" autocomplete="off">
@@ -348,7 +365,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
         <option value="0">Aus</option>
         <option value="1">Ein</option>
       </select>
-
+      <br><br>
       <button type="button" onclick="save()">Speichern & Neustart</button>
 
       <div class="btnRow">
@@ -375,6 +392,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
 </div>
 
 <script>
+
 function toggleStatic(){
   document.getElementById('staticFields').style.display =
     (document.getElementById('ipmode').value==='static') ? 'block' : 'none';
@@ -401,22 +419,98 @@ function setDot(id, ok){
   el.className = 'dot ' + (ok ? 'ok' : 'bad');
 }
 
-async function scan(){
-  const r=await fetch('/scan', {cache:'no-store'});
-  const j=await r.json();
-  const s=document.getElementById('net'); s.innerHTML='';
-  if(!j.networks || !j.networks.length){
-    const o=document.createElement('option'); o.textContent='Keine Netzwerke gefunden'; s.appendChild(o);
+let scanPollTries = 0;
+
+async function scan() {
+  const statusEl = document.getElementById('scanStatus');
+  const s = document.getElementById('net');
+
+  statusEl.textContent = 'Scan läuft…';
+  scanPollTries++;
+
+  let r, j;
+  try {
+    r = await fetch('/scan', { cache: 'no-store' });
+    j = await r.json();
+  } catch (e) {
+    statusEl.textContent = 'Scan fehlgeschlagen (Verbindung).';
+    scanPollTries = 0;
+    s.innerHTML = '';
+    s.appendChild(new Option('Keine Netzwerke gefunden', ''));
     return;
   }
-  j.networks.forEach(n=>{
-    const o=document.createElement('option');
-    o.value=n.ssid;
-    o.textContent=`${n.ssid} (${qLabel(n.rssi)})`;
+
+  // Scan läuft noch → weiter pollen
+  if (j.status === 'scanning') {
+    if (scanPollTries > 25) {
+      statusEl.textContent = 'Scan dauert zu lange. Bitte erneut versuchen.';
+      scanPollTries = 0;
+      return;
+    }
+    setTimeout(scan, 800);
+    return;
+  }
+
+  // Scan fehlgeschlagen
+  if (j.status === 'failed') {
+    statusEl.textContent = 'Scan fehlgeschlagen.';
+    scanPollTries = 0;
+    s.innerHTML = '';
+    s.appendChild(new Option('Keine Netzwerke gefunden', ''));
+    return;
+  }
+
+  scanPollTries = 0;
+
+  const rawNets = j.networks || [];
+  s.innerHTML = '';
+
+  // Platzhalter
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Auswählen';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  s.appendChild(placeholder);
+
+  if (!rawNets.length) {
+    statusEl.textContent = 'Keine Netzwerke gefunden.';
+    return;
+  }
+
+  /* ========= Duplikate entfernen =========
+     Pro SSID nur das stärkste Signal behalten
+  */
+  const bestBySsid = {};
+  rawNets.forEach(n => {
+    if (!n.ssid) return;
+    if (!bestBySsid[n.ssid] || n.rssi > bestBySsid[n.ssid].rssi) {
+      bestBySsid[n.ssid] = n;
+    }
+  });
+
+  // In Array umwandeln
+  const nets = Object.values(bestBySsid);
+
+  // Sortieren: bester RSSI zuerst
+  nets.sort((a, b) => b.rssi - a.rssi);
+
+  // Dropdown füllen
+  nets.forEach(n => {
+    const o = document.createElement('option');
+    o.value = n.ssid;
+    o.textContent = `${n.ssid} (${qLabel(n.rssi)})`;
     s.appendChild(o);
   });
-  s.onchange=()=>document.getElementById('ssid').value=s.value;
+
+  // SSID erst bei manueller Auswahl setzen
+  s.onchange = () => {
+    document.getElementById('ssid').value = s.value;
+  };
+
+  statusEl.textContent = `Scan abgeschlossen: ${nets.length} Netzwerk(e) gefunden.`;
 }
+
 
 /* ===== Form once (no jumping) ===== */
 async function loadFormOnce(){
@@ -584,7 +678,9 @@ async function factoryReset(){
 loadFormOnce();
 scan();
 setInterval(refreshStatus, 1000);
+document.addEventListener('DOMContentLoaded', scan);
 </script>
+
 </body></html>
 )HTML";
 
@@ -602,9 +698,9 @@ static void captiveRedirectToRoot() {
 }
 
 /* ================= Web Handlers ================= */
-static void handleRoot(){
+static void handleRoot() {
   sendNoCache();
-  server.send(200,"text/html; charset=utf-8",FPSTR(INDEX_HTML));
+  server.send(200, "text/html; charset=utf-8", FPSTR(INDEX_HTML));
 }
 
 static String currentIpString() {
@@ -613,83 +709,129 @@ static String currentIpString() {
   return String("");
 }
 
-static void handleCfg(){
+static void handleCfg() {
   sendNoCache();
 
   String ipNow = currentIpString();
   uint32_t now = millis();
   bool artnetActive = (now - g_lastArtnetMs) < 500;
-  bool dmxActive    = (now - g_lastDmxMs)    < 500;
+  bool dmxActive = (now - g_lastDmxMs) < 500;
 
-  String j="{";
-  j+="\"sta_cfg_ssid\":\""+String(cfg.sta_ssid)+"\",";
-  j+="\"sta_cfg_pass\":\""+String(cfg.sta_pass)+"\",";
-  j+="\"use_static\":"+String(cfg.useStatic?"true":"false")+",";
-  j+="\"ip\":\""+ipToString(cfg.ip)+"\",";
-  j+="\"gw\":\""+ipToString(cfg.gw)+"\",";
-  j+="\"sn\":\""+ipToString(cfg.sn)+"\",";
-  j+="\"universe\":"+String(cfg.universe)+",";
-  j+="\"ap_pass\":\""+String(cfg.ap_pass)+"\",";
-  j+="\"force_config\":"+String(cfg.forceConfig?"true":"false")+",";
-  j+="\"config_mode\":"+String(configMode?"true":"false")+",";
-  j+="\"ip_now\":\""+ipNow+"\",";
-  j+="\"artnet_active\":"+String(artnetActive?"true":"false")+",";
-  j+="\"dmx_active\":"+String(dmxActive?"true":"false");
-  j+="}";
-  server.send(200,"application/json; charset=utf-8",j);
+  String j = "{";
+  j += "\"sta_cfg_ssid\":\"" + String(cfg.sta_ssid) + "\",";
+  j += "\"sta_cfg_pass\":\"" + String(cfg.sta_pass) + "\",";
+  j += "\"use_static\":" + String(cfg.useStatic ? "true" : "false") + ",";
+  j += "\"ip\":\"" + ipToString(cfg.ip) + "\",";
+  j += "\"gw\":\"" + ipToString(cfg.gw) + "\",";
+  j += "\"sn\":\"" + ipToString(cfg.sn) + "\",";
+  j += "\"universe\":" + String(cfg.universe) + ",";
+  j += "\"ap_pass\":\"" + String(cfg.ap_pass) + "\",";
+  j += "\"force_config\":" + String(cfg.forceConfig ? "true" : "false") + ",";
+  j += "\"config_mode\":" + String(configMode ? "true" : "false") + ",";
+  j += "\"ip_now\":\"" + ipNow + "\",";
+  j += "\"artnet_active\":" + String(artnetActive ? "true" : "false") + ",";
+  j += "\"dmx_active\":" + String(dmxActive ? "true" : "false");
+  j += "}";
+  server.send(200, "application/json; charset=utf-8", j);
 }
 
 // status-only endpoint (so form doesn't jump)
-static void handleStatus(){
+static void handleStatus() {
   sendNoCache();
 
   String ipNow = currentIpString();
   uint32_t now = millis();
   bool artnetActive = (now - g_lastArtnetMs) < 500;
-  bool dmxActive    = (now - g_lastDmxMs)    < 500;
+  bool dmxActive = (now - g_lastDmxMs) < 500;
 
-  String j="{";
-  j+="\"ip_now\":\""+ipNow+"\",";
-  j+="\"universe\":"+String(cfg.universe)+",";
-  j+="\"config_mode\":"+String(configMode?"true":"false")+",";
-  j+="\"artnet_active\":"+String(artnetActive?"true":"false")+",";
-  j+="\"dmx_active\":"+String(dmxActive?"true":"false");
-  j+="}";
-  server.send(200,"application/json; charset=utf-8",j);
+  String j = "{";
+  j += "\"ip_now\":\"" + ipNow + "\",";
+  j += "\"universe\":" + String(cfg.universe) + ",";
+  j += "\"config_mode\":" + String(configMode ? "true" : "false") + ",";
+  j += "\"artnet_active\":" + String(artnetActive ? "true" : "false") + ",";
+  j += "\"dmx_active\":" + String(dmxActive ? "true" : "false");
+  j += "}";
+  server.send(200, "application/json; charset=utf-8", j);
 }
 
-static void handleScan(){
+static void handleScan() {
   sendNoCache();
 
-  Serial.println("[WEB] WiFi scan requested");
-  int n = WiFi.scanNetworks(/*async=*/false, /*hidden=*/true);
-  String j="{\"networks\":[";
-  bool first=true;
-  for(int i=0;i<n;i++){
-    String ssid = WiFi.SSID(i);
-    if (ssid.length()==0) continue;
-    ssid.replace("\\","\\\\"); ssid.replace("\"","\\\"");
-    if(!first) j+=",";
-    first=false;
-    j+="{\"ssid\":\""+ssid+"\",\"rssi\":"+String(WiFi.RSSI(i))+"}";
+  // Falls noch kein Scan läuft: starten
+  if (!wifiScanRunning) {
+    Serial.println("[WEB] WiFi scan requested -> start async scan");
+    WiFi.scanDelete();              // alte Ergebnisse weg
+    WiFi.scanNetworks(true, true);  // async, hidden=true
+    wifiScanRunning = true;
+    wifiScanStartMs = millis();
+  } else {
+    Serial.println("[WEB] WiFi scan requested -> scan already running");
   }
-  j+="]}";
-  WiFi.scanDelete();
-  server.send(200,"application/json; charset=utf-8",j);
+
+  // Status abfragen
+  int n = WiFi.scanComplete();
+
+  // -1 = läuft noch
+  if (n == WIFI_SCAN_RUNNING) {
+    server.send(200, "application/json; charset=utf-8", "{\"status\":\"scanning\"}");
+    return;
+  }
+
+  // -2 = fehlgeschlagen
+  if (n == WIFI_SCAN_FAILED) {
+    Serial.println("[WIFI] Scan failed");
+    wifiScanRunning = false;
+    server.send(200, "application/json; charset=utf-8", "{\"status\":\"failed\"}");
+    return;
+  }
+
+  // n >= 0 => fertig, Ergebnisse liefern
+  Serial.printf("[WIFI] Scan done: %d networks\n", n);
+  wifiScanRunning = false;
+
+  String j = "{\"status\":\"done\",\"networks\":[";
+  bool first = true;
+
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    if (ssid.length() == 0) continue;
+
+    ssid.replace("\\", "\\\\");
+    ssid.replace("\"", "\\\"");
+
+    if (!first) j += ",";
+    first = false;
+    j += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+  }
+
+  j += "]}";
+
+  WiFi.scanDelete();  // jetzt erst löschen
+  server.send(200, "application/json; charset=utf-8", j);
 }
 
-static void handleSave(){
+
+static void handleSave() {
   sendNoCache();
 
-  String ssid = server.arg("ssid"); ssid.trim();
-  String pass = server.arg("pass"); pass.trim();
-  String ipmode = server.arg("ipmode"); ipmode.trim();
-  String ip = server.arg("ip"); ip.trim();
-  String gw = server.arg("gw"); gw.trim();
-  String sn = server.arg("sn"); sn.trim();
-  String uni = server.arg("uni"); uni.trim();
-  String apP = server.arg("apPass"); apP.trim();
-  String fcfg = server.arg("forceCfg"); fcfg.trim();
+  String ssid = server.arg("ssid");
+  ssid.trim();
+  String pass = server.arg("pass");
+  pass.trim();
+  String ipmode = server.arg("ipmode");
+  ipmode.trim();
+  String ip = server.arg("ip");
+  ip.trim();
+  String gw = server.arg("gw");
+  gw.trim();
+  String sn = server.arg("sn");
+  sn.trim();
+  String uni = server.arg("uni");
+  uni.trim();
+  String apP = server.arg("apPass");
+  apP.trim();
+  String fcfg = server.arg("forceCfg");
+  fcfg.trim();
 
   long u = uni.toInt();
   if (u < 0) u = 0;
@@ -710,13 +852,22 @@ static void handleSave(){
   if (cfg.useStatic) {
     uint8_t t[4];
 
-    if(!parseIPv4(ip, t)) { server.send(400,"text/plain; charset=utf-8","Invalid IP"); return; }
+    if (!parseIPv4(ip, t)) {
+      server.send(400, "text/plain; charset=utf-8", "Invalid IP");
+      return;
+    }
     memcpy(cfg.ip, t, 4);
 
-    if(!parseIPv4(gw, t)) { server.send(400,"text/plain; charset=utf-8","Invalid Gateway"); return; }
+    if (!parseIPv4(gw, t)) {
+      server.send(400, "text/plain; charset=utf-8", "Invalid Gateway");
+      return;
+    }
     memcpy(cfg.gw, t, 4);
 
-    if(!parseIPv4(sn, t)) { server.send(400,"text/plain; charset=utf-8","Invalid Subnet"); return; }
+    if (!parseIPv4(sn, t)) {
+      server.send(400, "text/plain; charset=utf-8", "Invalid Subnet");
+      return;
+    }
     memcpy(cfg.sn, t, 4);
   }
 
@@ -734,14 +885,14 @@ static void handleSave(){
 
   saveConfig();
 
-  server.send(200,"text/plain; charset=utf-8","OK");
+  server.send(200, "text/plain; charset=utf-8", "OK");
 
   Serial.println("[SYS] Reboot requested by web (save)");
   delay(500);
   ESP.restart();
 }
 
-static void handleFactoryReset(){
+static void handleFactoryReset() {
   sendNoCache();
   server.send(200, "text/plain; charset=utf-8", "OK");
   // Reset after responding so browser gets 200
@@ -750,16 +901,16 @@ static void handleFactoryReset(){
 }
 
 /* ================= ArtNet Callback ================= */
-void onArtNetFrame(uint16_t uni, uint16_t len, uint8_t, uint8_t* data){
-  if(uni != startUniverse) return;
+void onArtNetFrame(uint16_t uni, uint16_t len, uint8_t, uint8_t* data) {
+  if (uni != startUniverse) return;
 
   g_artnetFramesTotal++;
   g_lastArtnetMs = millis();
 
   dmxBuffer[0] = 0;
   uint16_t channels = min<uint16_t>(len, 512);
-  for(uint16_t i=0;i<512;i++){
-    dmxBuffer[i+1] = (i<channels) ? data[i] : 0;
+  for (uint16_t i = 0; i < 512; i++) {
+    dmxBuffer[i + 1] = (i < channels) ? data[i] : 0;
   }
 }
 
@@ -775,9 +926,9 @@ static void startSTAIfPossible(bool allowConnect) {
   WiFi.mode(WIFI_STA);
 
   if (cfg.useStatic) {
-    IPAddress ip(cfg.ip[0],cfg.ip[1],cfg.ip[2],cfg.ip[3]);
-    IPAddress gw(cfg.gw[0],cfg.gw[1],cfg.gw[2],cfg.gw[3]);
-    IPAddress sn(cfg.sn[0],cfg.sn[1],cfg.sn[2],cfg.sn[3]);
+    IPAddress ip(cfg.ip[0], cfg.ip[1], cfg.ip[2], cfg.ip[3]);
+    IPAddress gw(cfg.gw[0], cfg.gw[1], cfg.gw[2], cfg.gw[3]);
+    IPAddress sn(cfg.sn[0], cfg.sn[1], cfg.sn[2], cfg.sn[3]);
     WiFi.config(ip, gw, sn);
     Serial.printf("[WIFI] STA static config: IP=%s GW=%s SN=%s\n",
                   ipToString(cfg.ip).c_str(), ipToString(cfg.gw).c_str(), ipToString(cfg.sn).c_str());
@@ -789,7 +940,7 @@ static void startSTAIfPossible(bool allowConnect) {
   WiFi.begin(cfg.sta_ssid, cfg.sta_pass);
 
   uint32_t start = millis();
-  while(WiFi.status()!=WL_CONNECTED && millis()-start < 10000){
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
     delay(200);
     Serial.print(".");
   }
@@ -817,7 +968,7 @@ static void startConfigAP() {
 /* ================= Serial command handling ================= */
 static String g_serialLine;
 
-static void handleSerialCommands(){
+static void handleSerialCommands() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\r') continue;
@@ -844,7 +995,7 @@ static void handleSerialCommands(){
 }
 
 /* ================= Setup / Loop ================= */
-void setup(){
+void setup() {
   Serial.begin(115200);
   pinMode(BOOT_PIN, INPUT_PULLUP);
   delay(150);
@@ -861,19 +1012,33 @@ void setup(){
 
   configMode = forcedByButton || cfg.forceConfig || (WiFi.status() != WL_CONNECTED);
   Serial.printf("[MODE] configMode=%d (forceConfig=%d, staConnected=%d)\n",
-                (int)configMode, (int)cfg.forceConfig, (WiFi.status()==WL_CONNECTED));
+                (int)configMode, (int)cfg.forceConfig, (WiFi.status() == WL_CONNECTED));
 
   if (configMode) {
     startConfigAP();
 
-    server.on("/generate_204", HTTP_ANY, [](){ captiveRedirectToRoot(); });
-    server.on("/gen_204", HTTP_ANY, [](){ captiveRedirectToRoot(); });
-    server.on("/hotspot-detect.html", HTTP_ANY, [](){ captiveRedirectToRoot(); });
-    server.on("/ncsi.txt", HTTP_ANY, [](){ captiveRedirectToRoot(); });
-    server.on("/connecttest.txt", HTTP_ANY, [](){ captiveRedirectToRoot(); });
-    server.on("/fwlink", HTTP_ANY, [](){ captiveRedirectToRoot(); });
+    server.on("/generate_204", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
+    server.on("/gen_204", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
+    server.on("/hotspot-detect.html", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
+    server.on("/ncsi.txt", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
+    server.on("/connecttest.txt", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
+    server.on("/fwlink", HTTP_ANY, []() {
+      captiveRedirectToRoot();
+    });
 
-    server.onNotFound([](){ captiveRedirectToRoot(); });
+    server.onNotFound([]() {
+      captiveRedirectToRoot();
+    });
   }
 
   server.on("/", HTTP_GET, handleRoot);
@@ -910,38 +1075,33 @@ void setup(){
   Serial.printf("[READY] Universe=%u, DMX refresh=%ums\n", (unsigned)startUniverse, (unsigned)DMX_REFRESH_MS);
 }
 
-void loop(){
+void loop() {
   // ===== BOOT long-press factory reset =====
-if (digitalRead(BOOT_PIN) == LOW) { // gedrückt
-  if (bootPressStartMs == 0) {
-    bootPressStartMs = millis();
-    Serial.println("[BOOT] Button pressed");
-  } else if (!bootResetTriggered &&
-             (millis() - bootPressStartMs >= BOOT_RESET_TIME_MS)) {
+  if (digitalRead(BOOT_PIN) == LOW) {
+    if (bootPressStartMs == 0) {
+      bootPressStartMs = millis();
+      Serial.println("[BOOT] Button pressed");
+    } else if (!bootResetTriggered && (millis() - bootPressStartMs >= BOOT_RESET_TIME_MS)) {
 
-    bootResetTriggered = true;
-    Serial.println("[BOOT] Long press detected -> Factory Reset");
-
-    factoryResetAndReboot("boot-long-press");
+      bootResetTriggered = true;
+      Serial.println("[BOOT] Long press detected -> Factory Reset");
+      factoryResetAndReboot("boot-long-press");
+    }
+  } else {
+    bootPressStartMs = 0;
+    bootResetTriggered = false;
   }
-} else {
-  // losgelassen -> zurücksetzen
-  if (bootPressStartMs != 0) {
-    Serial.println("[BOOT] Button released");
-  }
-  bootPressStartMs = 0;
-  bootResetTriggered = false;
-}
 
   handleSerialCommands();
 
-  if(configMode) dnsServer.processNextRequest();
+  if (configMode) dnsServer.processNextRequest();
   server.handleClient();
   artnet.read();
 
   uint32_t now = millis();
 
-  if(now - lastDmxSendMs >= DMX_REFRESH_MS){
+  // ===== DMX refresh (läuft IMMER weiter) =====
+  if (now - lastDmxSendMs >= DMX_REFRESH_MS) {
     lastDmxSendMs = now;
     g_lastDmxMs = now;
 
@@ -949,19 +1109,23 @@ if (digitalRead(BOOT_PIN) == LOW) { // gedrückt
     dmx_send(DMX_PORT);
   }
 
+  // ===== Debug Stats =====
   if (now - g_lastStatsMs >= 5000) {
     g_lastStatsMs = now;
     uint32_t frames = g_artnetFramesTotal;
     uint32_t delta = frames - g_lastFramesSnapshot;
     g_lastFramesSnapshot = frames;
 
-    String ipNow = (WiFi.status()==WL_CONNECTED) ? WiFi.localIP().toString()
-                 : (configMode ? WiFi.softAPIP().toString() : String("-"));
+    String ipNow = (WiFi.status() == WL_CONNECTED)
+                     ? WiFi.localIP().toString()
+                     : (configMode ? WiFi.softAPIP().toString() : String("-"));
 
-    Serial.printf("[STATS] ArtNet frames last 5s: %lu | total: %lu | IP: %s | Mode: %s | Universe: %u\n",
-                  (unsigned long)delta, (unsigned long)frames,
-                  ipNow.c_str(),
-                  (configMode ? "CONFIG" : "NORMAL"),
-                  (unsigned)cfg.universe);
+    Serial.printf(
+      "[STATS] ArtNet frames last 5s: %lu | total: %lu | IP: %s | Mode: %s | Universe: %u\n",
+      (unsigned long)delta,
+      (unsigned long)frames,
+      ipNow.c_str(),
+      (configMode ? "CONFIG" : "NORMAL"),
+      (unsigned)cfg.universe);
   }
 }
